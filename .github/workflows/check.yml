@@ -1,0 +1,51 @@
+name: Checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: studio
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: studio
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd 'pg_isready -U studio -d studio'
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DJANGO_SECRET_KEY: test-only-secret-at-least-32-characters
+      TEST_DATABASE_URL: postgres://studio:test-password@localhost:5432/studio
+      DEMO_MODE: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python manage.py check
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py spectacular --file /tmp/schema.yaml --fail-on-warn
+      - run: python -m pytest -q
+      - run: docker build -t review-studio-test .
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.6'
+          cache: true
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build web --dart-define=API_URL=http://localhost:8100/api/v1

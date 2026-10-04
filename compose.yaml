@@ -1,0 +1,70 @@
+x-app: &app
+  build: .
+  env_file: .env
+  restart: unless-stopped
+  volumes:
+    - photos:/app/media
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: studio
+      POSTGRES_USER: studio
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U studio -d studio]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  api:
+    <<: *app
+    ports:
+      - '8100:8100'
+    command: sh -c 'python manage.py migrate --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8100 --workers 2 --timeout 90'
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8100/health/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+  worker:
+    <<: *app
+    command: python -m celery -A config worker --loglevel=warning --concurrency=2
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  beat:
+    <<: *app
+    command: python -m celery -A config beat --loglevel=warning --schedule=/tmp/celerybeat-schedule
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  bot:
+    <<: *app
+    profiles: [telegram]
+    command: python manage.py run_bot
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  database:
+  photos:
