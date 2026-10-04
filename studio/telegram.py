@@ -7,6 +7,12 @@ from .models import Review, BotState, TelegramOutbox
 from .reviews import start_review, interact
 from .integrations import IntegrationError
 
+class TelegramError(IntegrationError):
+    def __init__(self, code, retry_after=5):
+        self.code = code
+        self.retry_after = min(max(int(retry_after), 5), 60)
+        super().__init__('Telegram отклонил запрос. Проверьте токен и доступ к боту.')
+
 class Telegram:
     def request(self, method, **payload):
         if not settings.TELEGRAM_BOT_TOKEN:
@@ -16,7 +22,7 @@ class Telegram:
                 json=payload, timeout=35)
             result = response.json()
             if not result.get('ok'):
-                raise IntegrationError('Telegram отклонил запрос. Проверьте токен и доступ к боту.')
+                raise TelegramError(result.get('error_code', 0), result.get('parameters', {}).get('retry_after', 5))
             return result['result']
         except IntegrationError:
             raise
@@ -25,7 +31,12 @@ class Telegram:
 
     def flush(self):
         for item in TelegramOutbox.objects.order_by('created_at')[:50]:
-            self.request('sendMessage', chat_id=item.chat_id, **item.payload)
+            try:
+                self.request('sendMessage', chat_id=item.chat_id, **item.payload)
+            except TelegramError as exc:
+                if exc.code not in (400, 403):
+                    raise
+                # A blocked/deleted chat must not stop replies to other clients.
             item.delete()
 
     def poll(self):

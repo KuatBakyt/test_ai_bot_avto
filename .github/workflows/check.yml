@@ -14,7 +14,7 @@ jobs:
           POSTGRES_DB: studio
         ports: ['5432:5432']
         options: >-
-          --health-cmd 'pg_isready -U studio -d studio'
+          --health-cmd "pg_isready -U studio -d studio"
           --health-interval 5s --health-timeout 3s --health-retries 20
     env:
       DJANGO_SECRET_KEY: test-only-secret-at-least-32-characters

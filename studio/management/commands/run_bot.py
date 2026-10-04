@@ -28,6 +28,6 @@ class Command(BaseCommand):
                     bot.poll()
                 except IntegrationError as exc:
                     self.stderr.write(str(exc))
-                    time.sleep(5)
+                    time.sleep(getattr(exc, 'retry_after', 5))
         except KeyboardInterrupt:
             self.stdout.write('Bot stopped.')

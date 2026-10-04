@@ -90,6 +90,7 @@ def test_photo_validation_and_metadata_stripping(api):
 def test_disabled_live_publish_and_simulator(api,settings):
     job=create_job(api);approve(job);post=Post.objects.get(job=job);advance(str(post.pk))
     settings.DEMO_MODE=False
+    Job.objects.filter(pk=job.pk).update(is_demo=False)
     assert api.post(f'/api/v1/jobs/{job.pk}/demo-chat/',{},format='json').status_code==400
     assert api.post(f'/api/v1/jobs/{job.pk}/publish/',{},format='json').status_code==400
 def test_ai_error_rolls_back_answer(api):
@@ -150,6 +151,7 @@ def test_telegram_update_dedup_and_private_only(api):
 
 def test_review_cannot_be_forged_by_owner_live(api,settings):
     job=create_job(api);settings.DEMO_MODE=False
+    Job.objects.filter(pk=job.pk).update(is_demo=False)
     assert api.post(f'/api/v1/jobs/{job.pk}/demo-chat/',{'action':'public_yes'},format='json').status_code==400
     assert api.patch(f'/api/v1/jobs/{job.pk}/',{'review':{'public_consent':True}},format='json').status_code==405
 
@@ -225,3 +227,11 @@ def test_real_jwt_login_and_authorized_upload(owner):
     assert client.get('/api/v1/config/').data['demo_mode'] is True
     refreshed=client.post('/api/v1/auth/refresh/',{'refresh':response.data['refresh']},format='json')
     assert refreshed.status_code==200 and 'access' in refreshed.data
+
+def test_blocked_telegram_chat_does_not_block_other_clients():
+    from studio.telegram import TelegramError
+    TelegramOutbox.objects.create(update_id=1,chat_id=101,payload={'text':'first'})
+    TelegramOutbox.objects.create(update_id=2,chat_id=102,payload={'text':'second'})
+    with patch.object(Telegram,'request',side_effect=[TelegramError(403),{}]) as send:
+        Telegram().flush()
+    assert send.call_count==2 and not TelegramOutbox.objects.exists()

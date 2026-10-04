@@ -102,7 +102,7 @@ class JobViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, mixins.Retrieve
             post = Post.objects.select_for_update().filter(job=job).first()
             if not permitted(job) or not post or post.status != 'DRAFT':
                 raise ValidationError('Публикация возможна только из готового черновика с разрешениями.')
-            if not settings.DEMO_MODE and not settings.INSTAGRAM_PUBLISH_ENABLED:
+            if not settings.DEMO_MODE and not job.is_demo and not settings.INSTAGRAM_PUBLISH_ENABLED:
                 raise ValidationError('Реальная публикация отключена в .env.')
             post.status, post.due_at, post.error = 'QUEUED', max(due, timezone.now()), ''
             post.save()
